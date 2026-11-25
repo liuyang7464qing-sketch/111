@@ -1,0 +1,23 @@
+name: diag
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-13
+          - macos-14
+          - macos-15
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Say hello
+        run: uname -a
+      - name: Xcode version
+        run: xcodebuild -version
+        continue-on-error: true
