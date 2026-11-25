@@ -2,7 +2,7 @@
 "use strict";
 
 (function () {
-  var VERSION = "g1-acq-v7.6-local";
+  var VERSION = "g1-acq-v7.7-local";
   var SOURCE_PREFIX = "g1.ios.2tb.";
   // User-selected 12-month offer ID from the screenshot; store metadata is still unverified.
   var TARGET = "g1.2tb.ai.12months_ip_90p";
@@ -35,10 +35,7 @@
     console.log("[g1-acq] SKU collection unavailable");
   }
 
-  if (!/^https:\/\/one\.google\.com\/ai\?/.test(url)) {
-    $done({});
-    return;
-  }
+  var isAiPage = /^https:\/\/one\.google\.com\/ai(?:\?|$)/.test(url);
 
   var mappings = Object.create(null);
   var hits = 0;
@@ -94,7 +91,7 @@
   };
 
   try {
-    if (typeof $persistentStore !== "undefined" &&
+    if ((hits > 0 || isAiPage) && typeof $persistentStore !== "undefined" &&
         typeof $persistentStore.write === "function") {
       if (!$persistentStore.write(JSON.stringify(record), TEST_KEY)) {
         console.log("[g1-acq] local record write failed");
