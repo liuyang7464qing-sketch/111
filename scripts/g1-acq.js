@@ -2,7 +2,7 @@
 "use strict";
 
 (function () {
-  var VERSION = "g1-acq-v7.7-local";
+  var VERSION = "g1-acq-v7.8-local";
   var SOURCE_PREFIX = "g1.ios.2tb.";
   // User-selected 12-month offer ID from the screenshot; store metadata is still unverified.
   var TARGET = "g1.2tb.ai.12months_ip_90p";
@@ -43,36 +43,55 @@
   var out = body;
 
   if (typeof body === "string") {
-    // Preserve v6's 20TB/30TB fallback rule using the original response.
-    // These are observed strings, not a verified store catalog.
-    var observed = body.match(/g1\.[a-z0-9._]{2,60}acq/g) || [];
-    // Match complete tokens before selecting 2TB or the two existing source IDs.
-    out = body.replace(
-      /(^|[^A-Za-z0-9._@%-])(g1\.[A-Za-z0-9._-]+)(?=$|[^A-Za-z0-9._-])/g,
-      function (match, before, id) {
-        var isAnnual = id.indexOf(SOURCE_PREFIX) === 0 && id.length > SOURCE_PREFIX.length;
-        var to;
-        var fallback = false;
-        if (isAnnual) {
-          to = TARGET;
-        } else if (Object.prototype.hasOwnProperty.call(SKU_MAP, id)) {
-          to = SKU_MAP[id];
-          if (observed.indexOf(to) === -1 && FALLBACK[to] && observed.indexOf(FALLBACK[to]) !== -1) {
-            to = FALLBACK[to];
-            fallback = true;
-          }
-        } else {
-          return match;
-        }
-        if (!mappings[id]) mappings[id] = { id: id, to: to, count: 0, fallback: fallback };
-        mappings[id].count += 1;
-        hits += 1;
-        if (isAnnual) annualHits += 1;
-        return before + to;
-      }
-    );
-  }
+    // 正文里的点可能被转义（\u002e / \x2e / &#46; 等），采集端会先解码，
+    // 改写端必须对每种写法都做一次替换，否则永远命中不了。
+    var decoded = body.replace(/\\u002e|\\x2e|&#0*46;|&#x0*2e;|&period;/gi, ".");
+    var observed = decoded.match(/g1\.[a-z0-9._]{2,60}acq/g) || [];
 
+    var ENCODERS = [
+      function (s) { return s; },
+      function (s) { return s.replace(/\./g, "\\u002e"); },
+      function (s) { return s.replace(/\./g, "\\x2e"); },
+      function (s) { return s.replace(/\./g, "&#46;"); },
+      function (s) { return s.replace(/\./g, "&#x2e;"); },
+      function (s) { return s.replace(/\./g, "&period;"); }
+    ];
+
+    var jobs = [];
+    Object.keys(SKU_MAP).forEach(function (from) {
+      jobs.push({ from: from, to: SKU_MAP[from], annual: false });
+    });
+    (decoded.match(/g1\.ios\.2tb\.[A-Za-z0-9._-]+/g) || []).forEach(function (id) {
+      jobs.push({ from: id, to: TARGET, annual: true });
+    });
+    // 长编号优先，避免 g1.ios.20tb.m 把 g1.ios.20tb.m.v2 吃掉一半
+    jobs.sort(function (a, b) { return b.from.length - a.from.length; });
+
+    jobs.forEach(function (job) {
+      var to = job.to;
+      var useFallback = false;
+      if (observed.indexOf(to) === -1 && FALLBACK[to] && observed.indexOf(FALLBACK[to]) !== -1) {
+        to = FALLBACK[to];
+        useFallback = true;
+      }
+      var n = 0;
+      ENCODERS.forEach(function (enc) {
+        var needle = enc(job.from);
+        if (out.indexOf(needle) === -1) return;
+        var parts = out.split(needle);
+        n += parts.length - 1;
+        out = parts.join(enc(to));
+      });
+      if (n > 0) {
+        if (!mappings[job.from]) {
+          mappings[job.from] = { id: job.from, to: to, count: 0, fallback: useFallback };
+        }
+        mappings[job.from].count += n;
+        hits += n;
+        if (job.annual) annualHits += n;
+      }
+    });
+  }
   var sources = Object.keys(mappings).sort().map(function (id) {
     return mappings[id];
   });
